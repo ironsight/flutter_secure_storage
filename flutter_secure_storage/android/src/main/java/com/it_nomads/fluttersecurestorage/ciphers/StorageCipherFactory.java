@@ -61,17 +61,11 @@ public class StorageCipherFactory {
     private final StorageCipherAlgorithm currentStorageAlgorithm;
 
     public StorageCipherFactory(SharedPreferences source, Map<String, Object> options) {
-
-        // Read the previously used storage algorithm. Default to legacy CBC if not found.
-        // This ensures that if the pref is missing, requiresReEncryption will correctly trigger
-        // if the current algorithm resolves to GCM.
         String savedStorageAlgoName = source.getString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, LEGACY_DEFAULT_STORAGE_ALGORITHM.name());
         StorageCipherAlgorithm tempSavedStorageAlgorithm;
         try {
-            // Read the actual saved value.
             tempSavedStorageAlgorithm = StorageCipherAlgorithm.valueOf(savedStorageAlgoName);
         } catch (IllegalArgumentException e) {
-            // Handle corrupted preference value, default to legacy CBC for the check.
             tempSavedStorageAlgorithm = LEGACY_DEFAULT_STORAGE_ALGORITHM;
         }
         savedStorageAlgorithm = tempSavedStorageAlgorithm;
@@ -79,21 +73,16 @@ public class StorageCipherFactory {
         savedKeyAlgorithm = KeyCipherAlgorithm.valueOf(source.getString(ELEMENT_PREFERENCES_ALGORITHM_KEY, DEFAULT_KEY_ALGORITHM.name()));
 
 
-        // --- Determine Target Storage Algorithm ---
-        // Determine the storage algorithm to use for this session, preferring GCM on API 23+.
         StorageCipherAlgorithm targetStorageAlgorithm;
         String storageOptionValue = (String) options.get("storageCipherAlgorithm");
 
         if (storageOptionValue != null) {
-            // Use algorithm from options if provided and valid.
             try {
                  targetStorageAlgorithm = StorageCipherAlgorithm.valueOf(storageOptionValue);
             } catch (IllegalArgumentException e) {
-                // Invalid option, fall back to SDK-based default.
                 targetStorageAlgorithm = getDefaultStorageAlgorithmForSdk();
             }
         } else {
-            // No option - use best available default based on SDK version.
             targetStorageAlgorithm = getDefaultStorageAlgorithmForSdk();
         }
 
@@ -105,9 +94,7 @@ public class StorageCipherFactory {
         currentKeyAlgorithm = (currentKeyAlgorithmTmp.minVersionCode <= Build.VERSION.SDK_INT) ? currentKeyAlgorithmTmp : DEFAULT_KEY_ALGORITHM;
     }
 
-    // Helper method to get the best default storage algorithm based on SDK version
     private StorageCipherAlgorithm getDefaultStorageAlgorithmForSdk() {
-        // Since minSdk is 23, GCM is always the default.
         return StorageCipherAlgorithm.AES_GCM_NoPadding;
     }
 
@@ -117,33 +104,24 @@ public class StorageCipherFactory {
     }
 
     public boolean requiresReEncryption() {
-        // Re-encrypt if the key algorithm changed OR if the storage algorithm changed.
-        // This now correctly compares the actual saved algorithm (potentially CBC)
-        // with the determined current algorithm (potentially GCM).
         return savedKeyAlgorithm != currentKeyAlgorithm || savedStorageAlgorithm != currentStorageAlgorithm;
     }
 
-  
     public StorageCipher getSavedStorageCipher(Context context) throws Exception {
         final KeyCipher keyCipher = savedKeyAlgorithm.keyCipher.apply(context);
-        // This should now work correctly as savedStorageAlgorithm can be AES_CBC_PKCS7Padding
-        // and the corresponding implementation exists.
         return savedStorageAlgorithm.storageCipher.apply(context, keyCipher);
     }
-
  
     public StorageCipher getCurrentStorageCipher(Context context) throws Exception {
         final KeyCipher keyCipher = currentKeyAlgorithm.keyCipher.apply(context);
         return currentStorageAlgorithm.storageCipher.apply(context, keyCipher);
     }
 
- 
     public void storeCurrentAlgorithms(SharedPreferences.Editor editor) {
         editor.putString(ELEMENT_PREFERENCES_ALGORITHM_KEY, currentKeyAlgorithm.name());
         editor.putString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, currentStorageAlgorithm.name());
     }
 
-   
     public void removeCurrentAlgorithms(SharedPreferences.Editor editor) {
         editor.remove(ELEMENT_PREFERENCES_ALGORITHM_KEY);
         editor.remove(ELEMENT_PREFERENCES_ALGORITHM_STORAGE);
