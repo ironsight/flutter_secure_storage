@@ -30,7 +30,7 @@ public class StorageCipherGCMImplementation extends StorageCipher18Implementatio
 
     @Override
     protected int getIvSize() {
-        return 12; 
+        return 12;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.KITKAT)
