@@ -3,6 +3,7 @@ package com.it_nomads.fluttersecurestorage.ciphers;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
+// import android.util.Log; // Uncomment if adding Log.w calls
 
 import java.util.Map;
 
@@ -19,9 +20,14 @@ enum KeyCipherAlgorithm {
     }
 }
 
+// Defines the available algorithms for encrypting/decrypting the actual stored value.
 enum StorageCipherAlgorithm {
-    // Only GCM is supported now (minSdk = 23)
+    // Re-add CBC for migration purposes, associated with the restored implementation.
+    AES_CBC_PKCS7Padding(StorageCipher18Implementation::new, 1),
+    // GCM is preferred on API 23+
+    @SuppressWarnings({"UnusedDeclaration"})
     AES_GCM_NoPadding(StorageCipherGCMImplementation::new, Build.VERSION_CODES.M);
+
     final StorageCipherFunction storageCipher;
     final int minVersionCode;
 
@@ -46,58 +52,80 @@ public class StorageCipherFactory {
     private static final String ELEMENT_PREFERENCES_ALGORITHM_KEY = ELEMENT_PREFERENCES_ALGORITHM_PREFIX + "Key";
     private static final String ELEMENT_PREFERENCES_ALGORITHM_STORAGE = ELEMENT_PREFERENCES_ALGORITHM_PREFIX + "Storage";
 
-    // Defaults
+    // Default algorithms to use if nothing is specified.
     private static final KeyCipherAlgorithm DEFAULT_KEY_ALGORITHM = KeyCipherAlgorithm.RSA_ECB_PKCS1Padding;
-    private static final StorageCipherAlgorithm DEFAULT_STORAGE_ALGORITHM = StorageCipherAlgorithm.AES_GCM_NoPadding;
+    // Use CBC as the legacy default for reading potentially missing preferences before SDK check.
+    private static final StorageCipherAlgorithm LEGACY_DEFAULT_STORAGE_ALGORITHM = StorageCipherAlgorithm.AES_CBC_PKCS7Padding;
 
-    // Note: savedStorageAlgorithm might still read AES_CBC_PKCS7Padding from old prefs, but it won't be used
-    // for new encryption/decryption if requiresReEncryption() is handled correctly.
     private final KeyCipherAlgorithm savedKeyAlgorithm;
     private final StorageCipherAlgorithm savedStorageAlgorithm;
     private final KeyCipherAlgorithm currentKeyAlgorithm;
     private final StorageCipherAlgorithm currentStorageAlgorithm;
 
     public StorageCipherFactory(SharedPreferences source, Map<String, Object> options) {
-        // === Saved Algorithm Determination ===
-        // Read saved algorithms, using GCM as the default if the preference key is missing
-        // Note: This might try to read "AES_CBC_PKCS7Padding" from old prefs, causing an exception if that enum value is removed entirely.
-        // Keeping the enum value but making it unused in selection logic is safer for migration.
-        // If strict cleanup is desired and migration from CBC isn't needed, the AES_CBC entry could be fully removed.
-        String savedStorageAlgoName = source.getString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, DEFAULT_STORAGE_ALGORITHM.name());
+
+        // Read the previously used storage algorithm. Default to legacy CBC if not found.
+        // This ensures that if the pref is missing, requiresReEncryption will correctly trigger
+        // if the current algorithm resolves to GCM.
+        String savedStorageAlgoName = source.getString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, LEGACY_DEFAULT_STORAGE_ALGORITHM.name());
+        StorageCipherAlgorithm tempSavedStorageAlgorithm;
         try {
-            savedStorageAlgorithm = StorageCipherAlgorithm.valueOf(savedStorageAlgoName);
+            // Read the actual saved value.
+            tempSavedStorageAlgorithm = StorageCipherAlgorithm.valueOf(savedStorageAlgoName);
         } catch (IllegalArgumentException e) {
-            // Handle case where old prefs had AES_CBC_PKCS7Padding which no longer exists
-            // or if prefs are corrupted. Default to GCM.
-            // Log.w("StorageCipherFactory", "Invalid saved storage algorithm '" + savedStorageAlgoName + "', defaulting to GCM.");
-            savedStorageAlgorithm = DEFAULT_STORAGE_ALGORITHM;
+            // Handle corrupted preference value, default to legacy CBC for the check.
+            // Log.w("StorageCipherFactory", "Invalid saved storage algorithm value '" + savedStorageAlgoName + "', defaulting to CBC for check.");
+            tempSavedStorageAlgorithm = LEGACY_DEFAULT_STORAGE_ALGORITHM;
         }
+        savedStorageAlgorithm = tempSavedStorageAlgorithm;
+
         savedKeyAlgorithm = KeyCipherAlgorithm.valueOf(source.getString(ELEMENT_PREFERENCES_ALGORITHM_KEY, DEFAULT_KEY_ALGORITHM.name()));
 
 
         // === Current Algorithm Determination ===
 
-        // --- Determine and Set Current Storage Algorithm ---
-        // Always use GCM as minSdk is 23+. Check if options specify something else (though only GCM is valid now).
+        // --- Determine Target Storage Algorithm ---
+        // Determine the storage algorithm to use for this session, preferring GCM on API 23+.
+        StorageCipherAlgorithm targetStorageAlgorithm;
         String storageOptionValue = (String) options.get("storageCipherAlgorithm");
-        StorageCipherAlgorithm requestedStorageAlgorithm = DEFAULT_STORAGE_ALGORITHM;
+
         if (storageOptionValue != null) {
+            // Use algorithm from options if provided and valid.
             try {
-                requestedStorageAlgorithm = StorageCipherAlgorithm.valueOf(storageOptionValue);
+                 targetStorageAlgorithm = StorageCipherAlgorithm.valueOf(storageOptionValue);
             } catch (IllegalArgumentException e) {
-                // Log.w("StorageCipherFactory", "Invalid storage algorithm option '" + storageOptionValue + "', using default GCM.");
-                requestedStorageAlgorithm = DEFAULT_STORAGE_ALGORITHM;
+                // Invalid option, fall back to SDK-based default.
+                // Log.w("StorageCipherFactory", "Invalid storage algorithm option '" + storageOptionValue + "', using SDK default.");
+                targetStorageAlgorithm = getDefaultStorageAlgorithmForSdk();
             }
+        } else {
+            // No option - use best available default based on SDK version.
+            targetStorageAlgorithm = getDefaultStorageAlgorithmForSdk();
         }
-        // Since minSdk=23, requested algorithm's minVersionCode check isn't strictly needed, but good practice.
-        // And currently, only AES_GCM_NoPadding is defined anyway.
-        currentStorageAlgorithm = (requestedStorageAlgorithm.minVersionCode <= Build.VERSION.SDK_INT) ? requestedStorageAlgorithm : DEFAULT_STORAGE_ALGORITHM;
+
+        // --- Validate and Set Current Storage Algorithm ---
+        // Ensure the target algorithm is supported by the current SDK version. Fallback to CBC if not.
+        // (This primarily handles requesting GCM on API < 23 via options, which shouldn't happen with minSdk=23)
+        if (targetStorageAlgorithm.minVersionCode <= Build.VERSION.SDK_INT) {
+            currentStorageAlgorithm = targetStorageAlgorithm;
+        } else {
+            currentStorageAlgorithm = StorageCipherAlgorithm.AES_CBC_PKCS7Padding;
+            // Log.w("StorageCipherFactory", "Requested storage algorithm " + targetStorageAlgorithm + " not supported on API " + Build.VERSION.SDK_INT + ", falling back to CBC.");
+        }
 
 
         // --- Determine and Set Current Key Algorithm ---
-        // Logic remains the same, defaulting to RSA_ECB_PKCS1Padding unless option overrides and is supported.
         final KeyCipherAlgorithm currentKeyAlgorithmTmp = KeyCipherAlgorithm.valueOf(getFromOptionsWithDefault(options, "keyCipherAlgorithm", DEFAULT_KEY_ALGORITHM.name()));
         currentKeyAlgorithm = (currentKeyAlgorithmTmp.minVersionCode <= Build.VERSION.SDK_INT) ? currentKeyAlgorithmTmp : DEFAULT_KEY_ALGORITHM;
+    }
+
+    // Helper method to get the best default storage algorithm based on SDK version
+    private StorageCipherAlgorithm getDefaultStorageAlgorithmForSdk() {
+        if (Build.VERSION.SDK_INT >= StorageCipherAlgorithm.AES_GCM_NoPadding.minVersionCode) {
+            return StorageCipherAlgorithm.AES_GCM_NoPadding; // Prefer GCM on API 23+
+        } else {
+            return StorageCipherAlgorithm.AES_CBC_PKCS7Padding; // Fallback for older SDKs (relevant if minSdk was < 23)
+        }
     }
 
     private String getFromOptionsWithDefault(Map<String, Object> options, String key, String defaultValue) {
@@ -106,31 +134,42 @@ public class StorageCipherFactory {
     }
 
     public boolean requiresReEncryption() {
-        // Re-encrypt if the key algorithm changed, or if the saved storage algorithm wasn't GCM
-        return savedKeyAlgorithm != currentKeyAlgorithm || savedStorageAlgorithm != StorageCipherAlgorithm.AES_GCM_NoPadding;
+        // Re-encrypt if the key algorithm changed OR if the storage algorithm changed.
+        // This now correctly compares the actual saved algorithm (potentially CBC)
+        // with the determined current algorithm (potentially GCM).
+        return savedKeyAlgorithm != currentKeyAlgorithm || savedStorageAlgorithm != currentStorageAlgorithm;
     }
 
-    // This method might fail if it tries to instantiate a StorageCipher for an algorithm
-    // that no longer exists (like AES_CBC). Consider if this method is still needed
-    // or how re-encryption handles reading old data.
-    // For now, it assumes valueOf() would fail above if AES_CBC was read and the enum was removed.
+    /**
+     * Creates a StorageCipher instance using the algorithms read from SharedPreferences.
+     * Used for reading data during re-encryption.
+     */
     public StorageCipher getSavedStorageCipher(Context context) throws Exception {
         final KeyCipher keyCipher = savedKeyAlgorithm.keyCipher.apply(context);
-        // If savedStorageAlgorithm could be AES_CBC, this line needs careful handling
-        // if that enum value/implementation is removed.
+        // This should now work correctly as savedStorageAlgorithm can be AES_CBC_PKCS7Padding
+        // and the corresponding implementation exists.
         return savedStorageAlgorithm.storageCipher.apply(context, keyCipher);
     }
 
+    /**
+     * Creates a StorageCipher instance using the currently determined algorithms.
+     */
     public StorageCipher getCurrentStorageCipher(Context context) throws Exception {
         final KeyCipher keyCipher = currentKeyAlgorithm.keyCipher.apply(context);
         return currentStorageAlgorithm.storageCipher.apply(context, keyCipher);
     }
 
+    /**
+     * Saves the names of the current algorithms to SharedPreferences.
+     */
     public void storeCurrentAlgorithms(SharedPreferences.Editor editor) {
         editor.putString(ELEMENT_PREFERENCES_ALGORITHM_KEY, currentKeyAlgorithm.name());
-        editor.putString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, currentStorageAlgorithm.name()); // Should always be GCM now
+        editor.putString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, currentStorageAlgorithm.name());
     }
 
+    /**
+     * Removes the saved algorithm names from SharedPreferences.
+     */
     public void removeCurrentAlgorithms(SharedPreferences.Editor editor) {
         editor.remove(ELEMENT_PREFERENCES_ALGORITHM_KEY);
         editor.remove(ELEMENT_PREFERENCES_ALGORITHM_STORAGE);
