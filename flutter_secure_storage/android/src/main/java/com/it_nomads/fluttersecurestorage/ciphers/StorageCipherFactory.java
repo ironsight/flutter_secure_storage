@@ -123,10 +123,7 @@ public class StorageCipherFactory {
         return savedKeyAlgorithm != currentKeyAlgorithm || savedStorageAlgorithm != currentStorageAlgorithm;
     }
 
-    /**
-     * Creates a StorageCipher instance using the algorithms read from SharedPreferences.
-     * Used for reading data during re-encryption.
-     */
+  
     public StorageCipher getSavedStorageCipher(Context context) throws Exception {
         final KeyCipher keyCipher = savedKeyAlgorithm.keyCipher.apply(context);
         // This should now work correctly as savedStorageAlgorithm can be AES_CBC_PKCS7Padding
@@ -134,25 +131,19 @@ public class StorageCipherFactory {
         return savedStorageAlgorithm.storageCipher.apply(context, keyCipher);
     }
 
-    /**
-     * Creates a StorageCipher instance using the currently determined algorithms.
-     */
+ 
     public StorageCipher getCurrentStorageCipher(Context context) throws Exception {
         final KeyCipher keyCipher = currentKeyAlgorithm.keyCipher.apply(context);
         return currentStorageAlgorithm.storageCipher.apply(context, keyCipher);
     }
 
-    /**
-     * Saves the names of the current algorithms to SharedPreferences.
-     */
+ 
     public void storeCurrentAlgorithms(SharedPreferences.Editor editor) {
         editor.putString(ELEMENT_PREFERENCES_ALGORITHM_KEY, currentKeyAlgorithm.name());
         editor.putString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, currentStorageAlgorithm.name());
     }
 
-    /**
-     * Removes the saved algorithm names from SharedPreferences.
-     */
+   
     public void removeCurrentAlgorithms(SharedPreferences.Editor editor) {
         editor.remove(ELEMENT_PREFERENCES_ALGORITHM_KEY);
         editor.remove(ELEMENT_PREFERENCES_ALGORITHM_STORAGE);
