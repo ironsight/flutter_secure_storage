@@ -47,7 +47,7 @@ public class StorageCipherFactory {
     private static final String ELEMENT_PREFERENCES_ALGORITHM_KEY = ELEMENT_PREFERENCES_ALGORITHM_PREFIX + "Key";
     private static final String ELEMENT_PREFERENCES_ALGORITHM_STORAGE = ELEMENT_PREFERENCES_ALGORITHM_PREFIX + "Storage";
     private static final KeyCipherAlgorithm DEFAULT_KEY_ALGORITHM = KeyCipherAlgorithm.RSA_ECB_PKCS1Padding;
-    private static final StorageCipherAlgorithm DEFAULT_STORAGE_ALGORITHM = StorageCipherAlgorithm.AES_CBC_PKCS7Padding;
+    private static final StorageCipherAlgorithm LEGACY_DEFAULT_STORAGE_ALGORITHM = StorageCipherAlgorithm.AES_CBC_PKCS7Padding;
 
     private final KeyCipherAlgorithm savedKeyAlgorithm;
     private final StorageCipherAlgorithm savedStorageAlgorithm;
@@ -56,12 +56,29 @@ public class StorageCipherFactory {
 
     public StorageCipherFactory(SharedPreferences source, Map<String, Object> options) {
         savedKeyAlgorithm = KeyCipherAlgorithm.valueOf(source.getString(ELEMENT_PREFERENCES_ALGORITHM_KEY, DEFAULT_KEY_ALGORITHM.name()));
-        savedStorageAlgorithm = StorageCipherAlgorithm.valueOf(source.getString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, DEFAULT_STORAGE_ALGORITHM.name()));
+        savedStorageAlgorithm = StorageCipherAlgorithm.valueOf(source.getString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, LEGACY_DEFAULT_STORAGE_ALGORITHM.name()));
+
+        StorageCipherAlgorithm targetStorageAlgorithm;
+        String storageOptionValue = (String) options.get("storageCipherAlgorithm");
+
+        if (storageOptionValue != null) {
+            targetStorageAlgorithm = StorageCipherAlgorithm.valueOf(storageOptionValue);
+        } else {
+            if (Build.VERSION.SDK_INT >= StorageCipherAlgorithm.AES_GCM_NoPadding.minVersionCode) {
+                targetStorageAlgorithm = StorageCipherAlgorithm.AES_GCM_NoPadding;
+            } else {
+                targetStorageAlgorithm = StorageCipherAlgorithm.AES_CBC_PKCS7Padding;
+            }
+        }
+
+        if (targetStorageAlgorithm.minVersionCode <= Build.VERSION.SDK_INT) {
+            currentStorageAlgorithm = targetStorageAlgorithm;
+        } else {
+            currentStorageAlgorithm = StorageCipherAlgorithm.AES_CBC_PKCS7Padding;
+        }
 
         final KeyCipherAlgorithm currentKeyAlgorithmTmp = KeyCipherAlgorithm.valueOf(getFromOptionsWithDefault(options, "keyCipherAlgorithm", DEFAULT_KEY_ALGORITHM.name()));
         currentKeyAlgorithm = (currentKeyAlgorithmTmp.minVersionCode <= Build.VERSION.SDK_INT) ? currentKeyAlgorithmTmp : DEFAULT_KEY_ALGORITHM;
-        final StorageCipherAlgorithm currentStorageAlgorithmTmp = StorageCipherAlgorithm.valueOf(getFromOptionsWithDefault(options, "storageCipherAlgorithm", DEFAULT_STORAGE_ALGORITHM.name()));
-        currentStorageAlgorithm = (currentStorageAlgorithmTmp.minVersionCode <= Build.VERSION.SDK_INT) ? currentStorageAlgorithmTmp : DEFAULT_STORAGE_ALGORITHM;
     }
 
     private String getFromOptionsWithDefault(Map<String, Object> options, String key, String defaultValue) {
