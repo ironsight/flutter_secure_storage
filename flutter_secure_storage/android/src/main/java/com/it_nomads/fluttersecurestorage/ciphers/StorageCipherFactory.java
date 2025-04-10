@@ -21,7 +21,6 @@ enum KeyCipherAlgorithm {
 
 // Defines the available algorithms for encrypting/decrypting the actual stored value.
 enum StorageCipherAlgorithm {
-    // Re-add CBC for migration purposes, associated with the restored implementation.
     AES_CBC_PKCS7Padding(StorageCipher18Implementation::new, 1),
     // GCM is preferred on API 23+
     @SuppressWarnings({"UnusedDeclaration"})
