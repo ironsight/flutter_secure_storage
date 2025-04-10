@@ -121,11 +121,8 @@ public class StorageCipherFactory {
 
     // Helper method to get the best default storage algorithm based on SDK version
     private StorageCipherAlgorithm getDefaultStorageAlgorithmForSdk() {
-        if (Build.VERSION.SDK_INT >= StorageCipherAlgorithm.AES_GCM_NoPadding.minVersionCode) {
-            return StorageCipherAlgorithm.AES_GCM_NoPadding; // Prefer GCM on API 23+
-        } else {
-            return StorageCipherAlgorithm.AES_CBC_PKCS7Padding; // Fallback for older SDKs (relevant if minSdk was < 23)
-        }
+        // Since minSdk is 23, GCM is always the default.
+        return StorageCipherAlgorithm.AES_GCM_NoPadding;
     }
 
     private String getFromOptionsWithDefault(Map<String, Object> options, String key, String defaultValue) {
