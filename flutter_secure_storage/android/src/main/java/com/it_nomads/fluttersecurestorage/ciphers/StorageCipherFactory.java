@@ -72,15 +72,12 @@ public class StorageCipherFactory {
             tempSavedStorageAlgorithm = StorageCipherAlgorithm.valueOf(savedStorageAlgoName);
         } catch (IllegalArgumentException e) {
             // Handle corrupted preference value, default to legacy CBC for the check.
-            // Log.w("StorageCipherFactory", "Invalid saved storage algorithm value '" + savedStorageAlgoName + "', defaulting to CBC for check.");
             tempSavedStorageAlgorithm = LEGACY_DEFAULT_STORAGE_ALGORITHM;
         }
         savedStorageAlgorithm = tempSavedStorageAlgorithm;
 
         savedKeyAlgorithm = KeyCipherAlgorithm.valueOf(source.getString(ELEMENT_PREFERENCES_ALGORITHM_KEY, DEFAULT_KEY_ALGORITHM.name()));
 
-
-        // === Current Algorithm Determination ===
 
         // --- Determine Target Storage Algorithm ---
         // Determine the storage algorithm to use for this session, preferring GCM on API 23+.
@@ -93,7 +90,6 @@ public class StorageCipherFactory {
                  targetStorageAlgorithm = StorageCipherAlgorithm.valueOf(storageOptionValue);
             } catch (IllegalArgumentException e) {
                 // Invalid option, fall back to SDK-based default.
-                // Log.w("StorageCipherFactory", "Invalid storage algorithm option '" + storageOptionValue + "', using SDK default.");
                 targetStorageAlgorithm = getDefaultStorageAlgorithmForSdk();
             }
         } else {
@@ -101,18 +97,10 @@ public class StorageCipherFactory {
             targetStorageAlgorithm = getDefaultStorageAlgorithmForSdk();
         }
 
-        // --- Validate and Set Current Storage Algorithm ---
-        // Ensure the target algorithm is supported by the current SDK version. Fallback to CBC if not.
-        // (This primarily handles requesting GCM on API < 23 via options, which shouldn't happen with minSdk=23)
-        if (targetStorageAlgorithm.minVersionCode <= Build.VERSION.SDK_INT) {
-            currentStorageAlgorithm = targetStorageAlgorithm;
-        } else {
-            currentStorageAlgorithm = StorageCipherAlgorithm.AES_CBC_PKCS7Padding;
-            // Log.w("StorageCipherFactory", "Requested storage algorithm " + targetStorageAlgorithm + " not supported on API " + Build.VERSION.SDK_INT + ", falling back to CBC.");
-        }
+      
+        currentStorageAlgorithm = targetStorageAlgorithm;
+   
 
-
-        // --- Determine and Set Current Key Algorithm ---
         final KeyCipherAlgorithm currentKeyAlgorithmTmp = KeyCipherAlgorithm.valueOf(getFromOptionsWithDefault(options, "keyCipherAlgorithm", DEFAULT_KEY_ALGORITHM.name()));
         currentKeyAlgorithm = (currentKeyAlgorithmTmp.minVersionCode <= Build.VERSION.SDK_INT) ? currentKeyAlgorithmTmp : DEFAULT_KEY_ALGORITHM;
     }
