@@ -14,8 +14,8 @@ public class StorageCipherGCMImplementation extends StorageCipher18Implementatio
 
     private static final int AUTHENTICATION_TAG_SIZE = 128;
 
-    public StorageCipherGCMImplementation(Context context, KeyCipher rsaCipher) throws Exception {
-        super(context, rsaCipher);
+    public StorageCipherGCMImplementation(Context context, KeyCipher keyCipher) throws Exception {
+        super(context, keyCipher);
     }
 
     @Override
@@ -30,10 +30,10 @@ public class StorageCipherGCMImplementation extends StorageCipher18Implementatio
 
     @Override
     protected int getIvSize() {
-        return 12; // Recommended IV size for GCM
+        return 12; 
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.KITKAT) // GCMParameterSpec requires API 19+
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
     @Override
     protected AlgorithmParameterSpec getParameterSpec(byte[] iv) {
         return new GCMParameterSpec(AUTHENTICATION_TAG_SIZE, iv);
