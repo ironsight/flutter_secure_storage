@@ -19,10 +19,13 @@ enum KeyCipherAlgorithm {
     }
 }
 
+// Defines the available algorithms for encrypting/decrypting the actual stored value.
 enum StorageCipherAlgorithm {
     AES_CBC_PKCS7Padding(StorageCipher18Implementation::new, 1),
+    // GCM is preferred on API 23+
     @SuppressWarnings({"UnusedDeclaration"})
     AES_GCM_NoPadding(StorageCipherGCMImplementation::new, Build.VERSION_CODES.M);
+
     final StorageCipherFunction storageCipher;
     final int minVersionCode;
 
@@ -46,8 +49,11 @@ public class StorageCipherFactory {
     private static final String ELEMENT_PREFERENCES_ALGORITHM_PREFIX = "FlutterSecureSAlgorithm";
     private static final String ELEMENT_PREFERENCES_ALGORITHM_KEY = ELEMENT_PREFERENCES_ALGORITHM_PREFIX + "Key";
     private static final String ELEMENT_PREFERENCES_ALGORITHM_STORAGE = ELEMENT_PREFERENCES_ALGORITHM_PREFIX + "Storage";
+
+    // Default algorithms to use if nothing is specified.
     private static final KeyCipherAlgorithm DEFAULT_KEY_ALGORITHM = KeyCipherAlgorithm.RSA_ECB_PKCS1Padding;
-    private static final StorageCipherAlgorithm DEFAULT_STORAGE_ALGORITHM = StorageCipherAlgorithm.AES_CBC_PKCS7Padding;
+    // Use CBC as the legacy default for reading potentially missing preferences before SDK check.
+    private static final StorageCipherAlgorithm LEGACY_DEFAULT_STORAGE_ALGORITHM = StorageCipherAlgorithm.AES_CBC_PKCS7Padding;
 
     private final KeyCipherAlgorithm savedKeyAlgorithm;
     private final StorageCipherAlgorithm savedStorageAlgorithm;
@@ -55,13 +61,41 @@ public class StorageCipherFactory {
     private final StorageCipherAlgorithm currentStorageAlgorithm;
 
     public StorageCipherFactory(SharedPreferences source, Map<String, Object> options) {
+        String savedStorageAlgoName = source.getString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, LEGACY_DEFAULT_STORAGE_ALGORITHM.name());
+        StorageCipherAlgorithm tempSavedStorageAlgorithm;
+        try {
+            tempSavedStorageAlgorithm = StorageCipherAlgorithm.valueOf(savedStorageAlgoName);
+        } catch (IllegalArgumentException e) {
+            tempSavedStorageAlgorithm = LEGACY_DEFAULT_STORAGE_ALGORITHM;
+        }
+        savedStorageAlgorithm = tempSavedStorageAlgorithm;
+
         savedKeyAlgorithm = KeyCipherAlgorithm.valueOf(source.getString(ELEMENT_PREFERENCES_ALGORITHM_KEY, DEFAULT_KEY_ALGORITHM.name()));
-        savedStorageAlgorithm = StorageCipherAlgorithm.valueOf(source.getString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, DEFAULT_STORAGE_ALGORITHM.name()));
+
+
+        StorageCipherAlgorithm targetStorageAlgorithm;
+        String storageOptionValue = (String) options.get("storageCipherAlgorithm");
+
+        if (storageOptionValue != null) {
+            try {
+                 targetStorageAlgorithm = StorageCipherAlgorithm.valueOf(storageOptionValue);
+            } catch (IllegalArgumentException e) {
+                targetStorageAlgorithm = getDefaultStorageAlgorithmForSdk();
+            }
+        } else {
+            targetStorageAlgorithm = getDefaultStorageAlgorithmForSdk();
+        }
+
+      
+        currentStorageAlgorithm = targetStorageAlgorithm;
+   
 
         final KeyCipherAlgorithm currentKeyAlgorithmTmp = KeyCipherAlgorithm.valueOf(getFromOptionsWithDefault(options, "keyCipherAlgorithm", DEFAULT_KEY_ALGORITHM.name()));
         currentKeyAlgorithm = (currentKeyAlgorithmTmp.minVersionCode <= Build.VERSION.SDK_INT) ? currentKeyAlgorithmTmp : DEFAULT_KEY_ALGORITHM;
-        final StorageCipherAlgorithm currentStorageAlgorithmTmp = StorageCipherAlgorithm.valueOf(getFromOptionsWithDefault(options, "storageCipherAlgorithm", DEFAULT_STORAGE_ALGORITHM.name()));
-        currentStorageAlgorithm = (currentStorageAlgorithmTmp.minVersionCode <= Build.VERSION.SDK_INT) ? currentStorageAlgorithmTmp : DEFAULT_STORAGE_ALGORITHM;
+    }
+
+    private StorageCipherAlgorithm getDefaultStorageAlgorithmForSdk() {
+        return StorageCipherAlgorithm.AES_GCM_NoPadding;
     }
 
     private String getFromOptionsWithDefault(Map<String, Object> options, String key, String defaultValue) {
@@ -77,7 +111,7 @@ public class StorageCipherFactory {
         final KeyCipher keyCipher = savedKeyAlgorithm.keyCipher.apply(context);
         return savedStorageAlgorithm.storageCipher.apply(context, keyCipher);
     }
-
+ 
     public StorageCipher getCurrentStorageCipher(Context context) throws Exception {
         final KeyCipher keyCipher = currentKeyAlgorithm.keyCipher.apply(context);
         return currentStorageAlgorithm.storageCipher.apply(context, keyCipher);

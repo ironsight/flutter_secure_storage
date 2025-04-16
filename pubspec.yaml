@@ -1,4 +1,4 @@
-name: flutter_secure_storage_root
+name: flutter_secure_storage
 
 environment:
   sdk: '>=2.15.0 <4.0.0'
